@@ -6,16 +6,41 @@ date: "06/20/2015"
 output: html_document
 ---
 ## Introduction
-This document analyses the health and economic consequences of storms and other severe events, using the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+This document analyses the health and economic consequences of storms and other severe events, using the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. NOAA's storm database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
 
 ## Data Processing
+
 The following code block downloads the data and loads it for further processing.
 
 ```{r cache=TRUE}
+setInternet2(use = TRUE)
 download.file(url = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2" ,
-              dest = "storm_data.csv.bz2", quiet="TRUE", method="curl")
+              dest = "storm_data.csv.bz2", method="auto", mode="wb")
 data <- read.csv("storm_data.csv.bz2", header=TRUE, sep=",")
 ```
+
+All states that are not in the US are dropped by comparing the STATE abbreviations with the state.abb dataset.
+
+```{r cache=TRUE}
+data <- data[(data$STATE %in% state.abb), ]
+```
+
+The PROPDMGEXP and CROPDMGEXP multipliers are converted to powers of 10, subject to the following assumption: K indicates 10^3, M indicates 10^6 and B indicates 10^9. Any non-numeric characters apart from k, m and b will be converted to NAs.
+
+```{r cache=TRUE}
+data$PROPDMGEXP = as.character(data$PROPDMGEXP)
+data$CROPDMGEXP = as.character(data$CROPDMGEXP)
+data$PROPDMGEXP[which(grepl("k", data$PROPDMGEXP, ignore.case=TRUE))] = 3
+data$PROPDMGEXP[which(grepl("m", data$PROPDMGEXP, ignore.case=TRUE))] = 6
+data$PROPDMGEXP[which(grepl("b", data$PROPDMGEXP, ignore.case=TRUE))] = 9
+data$CROPDMGEXP[which(grepl("k", data$CROPDMGEXP, ignore.case=TRUE))] = 3
+data$CROPDMGEXP[which(grepl("m", data$CROPDMGEXP, ignore.case=TRUE))] = 6
+data$CROPDMGEXP[which(grepl("b", data$CROPDMGEXP, ignore.case=TRUE))] = 9
+data$PROPDMGEXP = as.numeric(data$PROPDMGEXP)
+data$CROPDMGEXP = as.numeric(data$CROPDMGEXP)
+```
+
+No further treatment/cleanup of the input data is performed. It is observed that the number of unique event types (EVTYPE) are more than the number documented by NOAA, however, this column is not cleaned up because of the following reason: correct labeling would require a subject matter expert. E.g., the data source has an event type "TORNADOES, TSTM WIND, HAIL", however, there is no such event type in the official NOAA list of event types. This can be categorized as "TORNADO", "THUNDERSTORM WIND" or "HAIL". In the absence of any guidelines on how ambiguous event types should be interpreted w.r.t the [officially documented event types](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf), this report takes the event types in the csv file as the source of truth.
 
 ## Results
 
@@ -23,9 +48,11 @@ data <- read.csv("storm_data.csv.bz2", header=TRUE, sep=",")
 The first question asked of this report is:  
 Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?  
   
+The question does not indicate whether the extent of harm is w.r.t each event, per year, or across all years. In this report, we focus on calculating the total harm to the human population since the start of the dataset.  
+
 To answer this question, we first identify the columns that provide data about population health. In this report, we process the number of fatalities and number of injuries as the columns describing the impact on population health. We summarize the number of fatalities and number of injuries by event type. We then add the number of fatalities and injuries per event type to arrive at the final number indicating the number of affected people by each event type.
 
-```{r}
+```{r cache=TRUE}
 fatalities <- aggregate(data$FATALITIES, by=list(data$EVTYPE), FUN=sum)
 injuries <- aggregate(data$INJURIES, by=list(data$EVTYPE), FUN=sum)
 affected <- data.frame("EVTYPE" = fatalities$Group.1, "AFFECTED" = fatalities$x + injuries$x)
@@ -36,21 +63,29 @@ To list the event types that are most harmful to population health, we sort the 
 ```{r}
 affected <- affected[order(affected$AFFECTED, decreasing=TRUE), ]
 head(affected, n=10)
-par(las = 1, mar = c(4, 7, 1, 1))
-with(affected[1:10, ], barplot(AFFECTED, names.arg=EVTYPE, horiz=TRUE, xlab="Impact on health", ylab="Event Type"))
+```
 
+The following graph charts the top 10 most harmful event types:
+
+```{r}
+par(las = 1, mar = c(4, 7, 1, 1), cex.axis=0.4)
+with(affected[1:10, ], barplot(AFFECTED, names.arg=EVTYPE, horiz=TRUE, xlab="Impact on health"))
 ```
 
 ### Event types with greatest economic consequences
 The second question asked of this report is:  
 Across the United States, which types of events have the greatest economic consequences?  
   
+The question does not indicate whether the extent of harm is w.r.t each event, per year, or across all years. In this report, we focus on calculating the total economic consequences since the start of the dataset.    
+
 To answer this question, we first identify the columns that provide data about economic consequences. In this report, we process the property damage and crop damage as the columns describing the economic consequences. We summarize the property damage and crop damage by the event type. We then add the property damage and crop damage per event type to arrive at the total damage per event type.
 
 ```{r}
+data$PROPDMG <- data$PROPDMG * as.numeric(paste("1e", data$PROPDMGEXP, sep=""))
+data$CROPDMG <- data$CROPDMG * as.numeric(paste("1e", data$CROPDMGEXP, sep=""))
 propertyDamage <- aggregate(data$PROPDMG, by=list(data$EVTYPE), FUN=sum)
 cropDamage <- aggregate(data$CROPDMG, by=list(data$EVTYPE), FUN=sum)
-ec <- data.frame("EVTYPE" = propertyDamage$Group.1, "DAMAGE" = propertyDamage$x + cropDamage$x)
+ec <- data.frame("EVTYPE"=propertyDamage$Group.1, "DAMAGE"=propertyDamage$x + cropDamage$x)
 ```
 
 To list the event types that have the greatest economic consequences, we sort the summary dataframe in decreasing order of damage, and present the top 10.
@@ -58,6 +93,19 @@ To list the event types that have the greatest economic consequences, we sort th
 ```{r}
 ec <- ec[order(ec$DAMAGE, decreasing=TRUE), ]
 head(ec, n=10)
-par(las = 1, mar = c(4, 7, 1, 1))
-with(ec[1:10, ], barplot(DAMAGE, names.arg = EVTYPE, horiz = TRUE, xlab="Economic Consequences", ylab="Event Type"))
 ```
+
+The following graph charts the top 10 event types:
+
+```{r}
+par(las = 1, mar = c(4, 7, 1, 1), cex.axis=0.4)
+with(ec[1:10, ], barplot(DAMAGE, names.arg=EVTYPE, horiz=TRUE, xlab="Economic Consequences"))
+```
+
+## Notes
+This report has been generated using the following:
+
+- Operating system: Windows 7 Professional 64 bit
+- Processor: Intel(R) Core(TM) i5-2520 M CPU @ 2.50 GHz
+- Software: RStudio 0.99.446
+- Software: R version 3.1.0 (2014-04-10) -- "Spring Dance" for x64 platforms
